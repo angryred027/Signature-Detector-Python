@@ -21,7 +21,7 @@ constant_parameter_3 = 100
 constant_parameter_4 = 18
 
 # read the input image
-img = cv2.imread('./inputs/in1.jpg', 0)
+img = cv2.imread('./inputs/cropped.png', 0)
 img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)[1]  # ensure binary
 
 # connected component analysis by scikit-learn framework
@@ -70,7 +70,7 @@ a4_big_size_outliar_constant = a4_small_size_outliar_constant*constant_parameter
 print("a4_big_size_outliar_constant: " + str(a4_big_size_outliar_constant))
 
 # remove the connected pixels are smaller than a4_small_size_outliar_constant
-pre_version = morphology.remove_small_objects(blobs_labels, a4_small_size_outliar_constant)
+pre_version = morphology.remove_small_objects(blobs_labels, int(a4_small_size_outliar_constant))
 # remove the connected pixels are bigger than threshold a4_big_size_outliar_constant 
 # to get rid of undesired connected pixels such as table headers and etc.
 component_sizes = np.bincount(pre_version.ravel())
@@ -85,5 +85,69 @@ plt.imsave('pre_version.png', pre_version)
 img = cv2.imread('pre_version.png', 0)
 # ensure binary
 img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-# save the the result
-cv2.imwrite("./outputs/output.png", img)
+# save the final extracted signatures
+# cv2.imwrite('./outputs/output.png', img)
+
+# horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25,1))
+# detected_lines = cv2.morphologyEx(img, cv2.MORPH_OPEN, horizontal_kernel)
+# output = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+# output[detected_lines > 0] = [0, 0, 255]
+
+# cv2.imwrite('./outputs/output.png', output)
+
+img_inv = 255 - img
+
+# horizontal kernel, long and thin
+horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (100,1))
+detected_lines = cv2.morphologyEx(img_inv, cv2.MORPH_OPEN, horizontal_kernel)
+
+# create a mask to draw detected lines
+output = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+output[detected_lines > 0] = [255, 0, 0]  # draw detected lines in blue
+
+cv2.imwrite('./outputs/detected_lines.png', output)
+
+# remove lines
+img_clean = cv2.subtract(img_inv, detected_lines)
+# invert back to original: black signatures on white background
+img_clean = 255 - img_clean
+cv2.imwrite('./outputs/output.png', img_clean)
+
+# ---------------------------------------------
+# Remove small noise after line removal
+# ---------------------------------------------
+
+# convert cleaned image to binary
+_, img_bin = cv2.threshold(img_clean, 127, 255, cv2.THRESH_BINARY)
+
+# invert for skimage (objects should be True)
+img_bin_inv = img_bin == 0
+
+# remove small objects (adjust min_size according to your document)
+min_size = 100  # minimum pixel area to keep
+img_denoised = morphology.remove_small_objects(img_bin_inv, min_size=min_size)
+
+# convert back to uint8 image
+img_denoised = (255 - img_denoised.astype(np.uint8) * 255)
+
+# save the final cleaned signature
+cv2.imwrite('./outputs/output_cleaned.png', img_denoised)
+
+# convert to binary (if not already)
+_, binary = cv2.threshold(img_denoised, 127, 255, cv2.THRESH_BINARY)
+
+# count non-zero pixels (black strokes)
+num_signature_pixels = cv2.countNonZero(255 - binary)  # signature strokes are black
+
+# total image pixels
+total_pixels = binary.shape[0] * binary.shape[1]
+
+# simple ratio
+stroke_ratio = num_signature_pixels / total_pixels
+
+# define a threshold to decide if handwriting exists
+threshold = 0.001  # 0.1% of the image pixels
+if stroke_ratio > threshold:
+    print("Handwriting/signature detected ✅")
+else:
+    print("No handwriting/signature detected ❌")
